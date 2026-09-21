@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "feishu": {
+      "command": "C:\\path\\to\\feishu-docs-mcp\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\feishu-docs-mcp\\run_server.py"]
+    }
+  }
+}
