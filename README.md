@@ -157,6 +157,24 @@ claude mcp get feishu
 
 Codex 和 Claude Code 都会在会话启动时加载 MCP 工具清单。新增或更改配置后，需重启客户端或重新打开会话。
 
+### 8. 配置对话规则（推荐）
+
+仓库根目录提供了用于用例生成的 [`AGENTS.md`](AGENTS.md)，用于约束 Codex 和 Claude Code 优先通过飞书 MCP 访问文档，并统一新建文档位置和测试用例格式。使用时请保留准确的文件名 `AGENTS.md`，将它放到发起对话时选择的工作目录根目录；如果当前工作目录就是本仓库，则无需再次复制。Codex 会在新会话启动时自动读取该文件；Claude Code 2.1.277 及以上版本在当前目录及上级目录没有 `CLAUDE.md` 或 `CLAUDE.local.md` 时也会自动读取。已有 `CLAUDE.md` 时，可在其中添加 `@AGENTS.md`，或在 Claude Code 的 `/config` 中将 Project instructions 设为同时读取两种文件。需要让所有 Codex 项目默认使用这些规则时，也可以将它放到 `~/.codex/AGENTS.md`。
+
+**使用前必须修改默认定位节点。** 打开 `AGENTS.md`，找到“飞书默认文档位置”中的这一行：
+
+```text
+- 默认定位节点：这里存放自己的云文档根目录url，可以是同级的一篇文档url
+```
+
+将占位文字替换为你自己有权限访问的飞书 Wiki 节点 URL，例如：
+
+```text
+- 默认定位节点：https://your-tenant.feishu.cn/wiki/xxxxxxxxxxxxxxxxx
+```
+
+该节点用于确定默认创建目录：当对话中没有另行指定目录时，新建飞书文档或思维笔记会以此作为 `placement_target`，创建在该节点的同级目录。修改后请新建或重启 Codex、Claude Code 会话，使规则重新加载。加载范围和优先级参见 [Codex AGENTS.md 官方说明](https://learn.chatgpt.com/docs/agent-configuration/agents-md)和 [Claude Code AGENTS.md 官方说明](https://code.claude.com/docs/en/memory#agents-md)。
+
 ## 项目结构
 
 ```text
