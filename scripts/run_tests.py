@@ -17,6 +17,7 @@ SUITES = [
     "tests/test_auth_mock.py",
     "tests/test_mindnote_mock.py",
     "tests/test_attachment_mock.py",
+    "tests/test_board_mock.py",
 ]
 
 def main() -> int:

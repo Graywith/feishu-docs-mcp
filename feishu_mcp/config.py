@@ -33,6 +33,9 @@ OAUTH_SCOPES = [
     "drive:drive:readonly",
     "mindnote:node:read",
     "mindnote:node:create",
+    "board:whiteboard:node:read",
+    "board:whiteboard:node:create",
+    "board:whiteboard:node:delete",
 ]
 
 DEFAULT_OAUTH_PORT = 3000

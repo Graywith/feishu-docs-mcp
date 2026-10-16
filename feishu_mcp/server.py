@@ -1,16 +1,17 @@
 """注册飞书文档工具并启动 STDIO MCP 服务。
 
-删除操作不属于本服务的能力范围。
+画板节点删除需明确指定节点 ID，子节点会被飞书递归删除。
 """
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Literal
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
-from . import __version__, attachments, config, docs, mindnote, wiki
+from . import __version__, attachments, board, config, docs, mindnote, wiki
 from .auth import AuthError
 from .client import FeishuAPIError, FeishuClient
 from .md_to_blocks import (
@@ -27,6 +28,7 @@ mcp = MCPServer(
         "读写飞书云文档。需要保留表格、标题层级和待办状态时，使用 "
         "feishu_read_doc 的 structured 模式。"
         "MindNote 链接用 feishu_read_mindnote 读取节点树；写入前先读取并确认 node_id。"
+        "文档内嵌画板用 feishu_read_boards 读取节点树。"
         "不知道文档链接时先用 feishu_search_docs 搜。"
     ),
     version=__version__,
@@ -37,7 +39,7 @@ _client = FeishuClient()
 
 def _friendly(exc: Exception) -> str:
     """将预期异常转换为适合 MCP 工具输出的消息。"""
-    if isinstance(exc, (AuthError, WriteError, UnsupportedDocError, FeishuAPIError)):
+    if isinstance(exc, (AuthError, WriteError, board.BoardError, UnsupportedDocError, FeishuAPIError)):
         return f"操作失败：{exc}"
     return f"操作失败（{type(exc).__name__}）：{exc}"
 
@@ -107,6 +109,80 @@ async def feishu_read_doc(
         if wiki_source:
             lines.append("（已自动把 wiki 节点解析为底层文档）")
         return "\n".join(lines) + "\n\n---\n\n" + result["markdown"]
+    except Exception as exc:
+        return _friendly(exc)
+
+
+@mcp.tool(description="读取文档内嵌画板的全部节点，按父子关系输出 Markdown 树；不修改文档。")
+async def feishu_read_boards(
+    target: Annotated[str, Field(description="包含画板的 /docx/、/wiki/ 链接或文档 ID")],
+    whiteboard_id: Annotated[str, Field(description="可选：只读取指定画板 ID；留空读取文档内全部画板")] = "",
+) -> str:
+    try:
+        boards = await board.read_document_boards(_client, target, whiteboard_id)
+        lines = [f"画板数：{len(boards)}；节点总数：{sum(len(item['nodes']) for item in boards)}"]
+        for item in boards:
+            lines += [
+                f"\n## 画板 {item['whiteboard_id']}",
+                f"文档块：{item['block_id']}；节点数：{len(item['nodes'])}",
+                board.render_nodes(item["nodes"]),
+            ]
+        return "\n".join(lines)
+    except Exception as exc:
+        return _friendly(exc)
+
+
+@mcp.tool(description="按飞书画板节点 API 创建节点。nodes_json 必须是非空节点对象数组；先读取画板确认 ID。")
+async def feishu_create_board_nodes(
+    whiteboard_id: Annotated[str, Field(description="画板 ID，可由 feishu_read_boards 获取")],
+    nodes_json: Annotated[str, Field(description="符合飞书创建画板节点接口的 JSON 数组")],
+) -> str:
+    try:
+        nodes = json.loads(nodes_json)
+        result = await board.create_nodes(_client, whiteboard_id, nodes)
+        return f"已创建节点：{result.get('ids') or []}"
+    except Exception as exc:
+        return _friendly(exc)
+
+
+@mcp.tool(description="用完整节点列表覆盖整张画板。原节点会被清除且 ID 改变；须提供当前全部节点 ID 供写前核对。")
+async def feishu_replace_board_nodes(
+    whiteboard_id: Annotated[str, Field(description="要覆盖的画板 ID")],
+    nodes_json: Annotated[str, Field(description="覆盖后画板的完整节点 JSON 数组，不可只传要修改的节点")],
+    expected_node_ids: Annotated[list[str], Field(description="写入前读取到的全部现有节点 ID；空画板传 []")],
+) -> str:
+    try:
+        result = await board.replace_nodes(
+            _client, whiteboard_id, json.loads(nodes_json), expected_node_ids
+        )
+        return f"已整板覆盖；新节点 ID：{result.get('ids') or []}。请重新读取画板确认内容。"
+    except Exception as exc:
+        return _friendly(exc)
+
+
+@mcp.tool(description="按节点 ID 删除画板节点。飞书会递归删除其子节点；请先读取画板核对 ID。")
+async def feishu_delete_board_nodes(
+    whiteboard_id: Annotated[str, Field(description="画板 ID，可由 feishu_read_boards 获取")],
+    node_ids: Annotated[list[str], Field(description="待删除的节点 ID 列表；其子节点也会被删除")],
+) -> str:
+    try:
+        result = await board.delete_nodes(_client, whiteboard_id, node_ids)
+        return f"已提交删除 {len(node_ids)} 个节点；client_token：{result.get('client_token') or ''}"
+    except Exception as exc:
+        return _friendly(exc)
+
+
+@mcp.tool(description="更新画板主题；这是官方支持的画板更新操作，不会修改已有节点内容。")
+async def feishu_update_board_theme(
+    whiteboard_id: Annotated[str, Field(description="画板 ID，可由 feishu_read_boards 获取")],
+    theme: Annotated[
+        Literal["classic", "minimalist_gray", "retro", "vibrant_color", "default"],
+        Field(description="官方支持的画板主题"),
+    ],
+) -> str:
+    try:
+        await board.update_theme(_client, whiteboard_id, theme)
+        return f"已将画板 {whiteboard_id} 的主题更新为 {theme}。"
     except Exception as exc:
         return _friendly(exc)
 

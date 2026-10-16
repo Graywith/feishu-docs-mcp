@@ -9,6 +9,7 @@
 - 读取 Wiki 中的 Markdown 和纯文本附件，内容仅保留在进程内存中。
 - 从 Markdown 创建飞书文档，或向现有文档首部、末尾追加内容。
 - 读取 MindNote 节点树，并支持创建整篇 MindNote、创建子节点和更新节点。
+- 读取文档内嵌画板的节点树；支持创建节点、按 ID 删除节点和更新画板主题。
 - 支持用户授权持久化、access token 自动刷新和多进程刷新串行化。
 - 对飞书应用级频控和文档并发编辑限制执行限速、退避和有界重试。
 
@@ -17,6 +18,11 @@
 | 工具 | 作用 | 关键行为 |
 |---|---|---|
 | `feishu_read_doc` | 读取云文档、Wiki 文档或文本附件 | `structured` 模式保留块结构；`raw` 模式优先速度 |
+| `feishu_read_boards` | 读取文档内嵌画板 | 按父子关系输出节点 Markdown 树，可指定单张画板 |
+| `feishu_create_board_nodes` | 创建画板节点 | 接收官方节点格式的 JSON 数组 |
+| `feishu_replace_board_nodes` | 覆盖整张画板的节点 | 写前核对全部旧节点 ID；飞书会清除旧节点并分配新 ID |
+| `feishu_delete_board_nodes` | 删除画板节点 | 按 ID 删除；其子节点会被递归删除 |
+| `feishu_update_board_theme` | 更新画板主题 | 不修改已有节点内容 |
 | `feishu_get_doc_meta` | 读取标题和版本元数据 | 用于小成本确认文档身份 |
 | `feishu_search_docs` | 搜索云文档和知识库节点 | 返回标题、类型和可访问链接 |
 | `feishu_wiki_tree` | 遍历知识库节点 | 支持起始节点和深度限制 |
@@ -77,6 +83,9 @@ python3 -m venv .venv
 | `drive:drive:readonly` | 搜索云文档、下载 Wiki 文本附件 |
 | `mindnote:node:read` | 读取 MindNote 节点 |
 | `mindnote:node:create` | 创建或更新 MindNote 节点 |
+| `board:whiteboard:node:read` | 读取画板节点 |
+| `board:whiteboard:node:create` | 创建画板节点、更新画板主题 |
+| `board:whiteboard:node:delete` | 删除画板节点及其子节点 |
 | `offline_access` | 获取 refresh token，支持长期授权 |
 
 在应用的安全设置中添加 OAuth 重定向地址：
@@ -86,6 +95,7 @@ http://localhost:3000/callback
 ```
 
 如果需要改用其他端口，必须同时修改开放平台重定向地址和 `.env` 中的 `FEISHU_OAUTH_PORT`。权限配置完成后需发布应用版本；未发布的权限不会进入用户授权范围。
+新增画板权限后，还需重新运行 `scripts/login.py` 让当前用户重新授权；只刷新旧 token 不会取得新增权限。
 
 ### 4. 配置本地凭证
 
@@ -204,9 +214,10 @@ feishu-docs-mcp/
 | 不搬运 Markdown 图片 | 飞书 `blocks/convert` 不负责上传媒体。服务会跳过图片并返回未搬运数量，避免生成无效引用。 |
 | 文本附件限于 `.md`、`.markdown`、`.txt` | 二进制附件需要独立格式解析器。未配置解析器时拒绝将 PDF、Word 或 Excel 当作文本解码。 |
 | 单个文本附件最大 8 MiB | 附件直接下载到进程内存，大小限制用于约束单次 MCP 调用的内存占用。 |
-| 不解析多维表格、电子表格和画板内容 | Docx API 在容器块中只返回关联 token，底层数据需要 Bitable、Sheets 或 Board 专用 API 及额外权限。输出会保留类型和 token，不会静默丢弃。 |
+| `feishu_read_doc` 不展开多维表格、电子表格和画板内容 | Docx 块接口只返回关联 token。画板请另用 `feishu_read_boards`；多维表格和电子表格仍需专用接口。 |
 | 不支持旧版 `/docs/` 正文 | 旧版文档与 Docx 块模型不兼容，需先在飞书中升级为新版文档。 |
 | MindNote 节点仅支持安全的纯文本写入 | 飞书节点模型还支持链接、用户和文档引用；当前工具仅生成可确定验证的文本、备注、高亮和完成状态。 |
+| 不支持保留节点 ID 修改文字 | 官方创建节点接口可用 `overwrite=true` 覆盖整张画板，但会清除原节点并分配新 ID；`feishu_replace_board_nodes` 需要提供完整新节点列表，不能只传要修改的一项。 |
 | 不删除 MindNote 内部节点 | 飞书 MindNote OpenAPI 目前只提供节点读取与创建/更新接口，没有节点删除接口或对应权限。 |
 | 不提供文档删除工具 | 删除不属于内容读写的必要链路，且在自动化场景中具有不可逆风险。 |
 | OAuth 使用飞书 v2 token 端点 | 端点已在 `config.py` 集中定义，不与文档、Wiki 或 MindNote 业务逻辑耦合。 |
